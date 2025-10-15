@@ -1,54 +1,72 @@
 @echo off
+chcp 65001 >nul
 setlocal
 
-:: Ustal nazwÍ pliku raportu
-set REPORT=raport.txt
+:: === Wymuszenie uprawnie≈Ñ administratora ===
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ?? Uruchamianie jako administrator...
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    exit /b
+)
 
-:: WyczyúÊ poprzedni raport
-if exist %REPORT% del %REPORT%
+:: === ≈öcie≈ºka do raportu ===
+set "REPORT=%USERPROFILE%\Documents\raport.txt"
+if exist "%REPORT%" del "%REPORT%"
 
-:: Dodaj nag≥Ûwek raportu
-echo ===== Inwentaryzacja systemu Windows ===== >> %REPORT%
-echo Data i godzina: %DATE% %TIME% >> %REPORT%
-echo. >> %REPORT%
+echo ===== INWENTARYZACJA SYSTEMU WINDOWS ===== > "%REPORT%"
+echo Data: %DATE% %TIME% >> "%REPORT%"
+echo Komputer: %COMPUTERNAME% >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Informacje o systemie
-echo === Informacje o systemie === >> %REPORT%
-systeminfo >> %REPORT%
-echo. >> %REPORT%
+:: === Informacje o systemie ===
+echo === INFORMACJE O SYSTEMIE === >> "%REPORT%"
+powershell -Command "Get-ComputerInfo | Select-Object CsManufacturer, CsModel, WindowsProductName, WindowsVersion, OsArchitecture, BiosVersion, BiosReleaseDate" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Lista procesÛw
-echo === Lista uruchomionych procesÛw === >> %REPORT%
-tasklist >> %REPORT%
-echo. >> %REPORT%
+:: === Procesor ===
+echo === INFORMACJE O PROCESORZE === >> "%REPORT%"
+powershell -Command "Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Lista zainstalowanych programÛw
-echo === Lista zainstalowanych programÛw === >> %REPORT%
-wmic product get name,version >> %REPORT%
-echo. >> %REPORT%
+:: === Pamiƒôƒá RAM ===
+echo === PAMIƒòƒÜ RAM === >> "%REPORT%"
+powershell -Command "Get-CimInstance Win32_PhysicalMemory | Select-Object Manufacturer,PartNumber,Capacity,Speed" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Informacje o sieci
-echo === Konfiguracja sieci === >> %REPORT%
-ipconfig /all >> %REPORT%
-echo. >> %REPORT%
+:: === Dyski ===
+echo === DYSKI FIZYCZNE === >> "%REPORT%"
+powershell -Command "Get-PhysicalDisk | Select-Object FriendlyName,MediaType,Size,HealthStatus" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Pod≥πczone dyski
-echo === Lista dyskÛw === >> %REPORT%
-wmic logicaldisk get deviceid, volumename, filesystem, size, freespace >> %REPORT%
-echo. >> %REPORT%
+:: === TPM / Secure Boot / UEFI ===
+echo === ZABEZPIECZENIA I TRYB ROZRUCHU === >> "%REPORT%"
+powershell -Command ^
+"try { $tpm = Get-WmiObject -Namespace 'Root\CIMv2\Security\MicrosoftTpm' -Class Win32_Tpm; if($tpm){Write-Host 'TPM: Aktywny'}} catch {Write-Host 'TPM: Niedostƒôpny lub wy≈ÇƒÖczony'}"
+powershell -Command ^
+"try { if(Confirm-SecureBootUEFI){Write-Host 'Secure Boot: W≈ÇƒÖczony'} else {Write-Host 'Secure Boot: Wy≈ÇƒÖczony'} } catch {Write-Host 'Secure Boot: Niedostƒôpny'}" >> "%REPORT%"
+powershell -Command ^
+"$uefi=(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control').PEFirmwareType; if($uefi -eq 2){Write-Host 'Tryb UEFI'} else {Write-Host 'Tryb Legacy BIOS'}" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Informacje o uøytkownikach
-echo === Lista uøytkownikÛw === >> %REPORT%
-wmic useraccount get name,sid >> %REPORT%
-echo. >> %REPORT%
+:: === GPU ===
+echo === KARTA GRAFICZNA === >> "%REPORT%"
+powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,AdapterRAM" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: Informacje o sprzÍcie
-echo === Informacje o sprzÍcie === >> %REPORT%
-wmic cpu get name >> %REPORT%
-wmic memorychip get capacity >> %REPORT%
-wmic bios get serialnumber >> %REPORT%
-echo. >> %REPORT%
+:: === Sieƒá ===
+echo === SIEƒÜ === >> "%REPORT%"
+powershell -Command "Get-NetAdapter | Select-Object Name,InterfaceDescription,Status,MacAddress" >> "%REPORT%"
+echo. >> "%REPORT%"
 
-:: ZakoÒczenie
-echo Inwentaryzacja zakoÒczona. Wyniki zapisano do %REPORT%.
+:: === Ocena zgodno≈õci z Windows 11 ===
+echo === KOMPATYBILNO≈öƒÜ Z WINDOWS 11 === >> "%REPORT%"
+powershell -Command ^
+"$arch=(Get-ComputerInfo).OsArchitecture; $uefi=(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control').PEFirmwareType; $tpm=$false; try{$t=Get-WmiObject -Namespace 'Root\CIMv2\Security\MicrosoftTpm' -Class Win32_Tpm; if($t.IsEnabled_InitialValue -and $t.IsActivated_InitialValue){$tpm=$true}}catch{}; $secure=$false; try{$secure=Confirm-SecureBootUEFI}catch{}; if(($arch -match '64') -and ($uefi -eq 2) -and $tpm -and $secure){Write-Host '? ZGODNY Z WINDOWS 11'} else {Write-Host '? NIEZGODNY Z WINDOWS 11'}" >> "%REPORT%"
+echo. >> "%REPORT%"
+
+:: === Zako≈Ñczenie ===
+echo Raport zapisany: %REPORT%
+start notepad "%REPORT%"
 pause
+exit /b
